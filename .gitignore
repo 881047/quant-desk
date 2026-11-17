@@ -1,0 +1,122 @@
+.venv/
+.env
+# Token backups from a rotation carry the old secret. They belong on the operator's
+# disk for a rollback window, never in the repository.
+.env.bak-*
+.env.*.bak
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/parquet/
+data/sqlite/
+data/rt_snapshots/
+# 裁剪前的冷存（`snapshot.prune_frames` 转存），46MB 起，随交易日增长。
+data/rt_archive/
+data/rejects/
+data/sentiment/
+data/registry.sqlite*
+data/paper.sqlite*
+data/research.sqlite*
+data/e2e_paper.sqlite*
+data/catalog.sqlite*
+data/backfill_last_run.json
+# 补数游标（last_code / cycle_done）：属于这台机器，不是仓库的一部分。
+# 提交它会把进度冻结在提交那一刻，下一台机器从中间接着扫。
+data/state/
+data/*.log
+data/panel_webview/
+data/*.log.*
+plugin/node_modules/
+plugin/mcp/node_modules/
+reports/*.csv
+reports/*.png
+
+data/core_test.sqlite*
+data/backups/
+data/cache/
+data/backups/
+data/inbox/
+
+# Real account: statements and reports contain live positions and PnL.
+data/external/
+data/external.sqlite*
+data/external.before-reset-*.sqlite
+reports/external/
+
+# local agent state (WorkBuddy session memory, not project content)
+.workbuddy/
+
+# raw API responses captured while auditing endpoints; kept out of the tree
+.audit-scratch/
+
+# per-dataset quality scans (`verify_data.py --dataset X`), not the market-wide report
+reports/data_quality_*.json
+reports/P1_data_quality_*.md
+
+# A manual `verify_data.py` without --out writes these two. The scheduled chain
+# always passes `--out reports/daily/<day>_quality.json`, so the root pair has no
+# writer and sat at 2026-11-02 while every session was being scanned into daily/.
+# Retired 2026-11-15: the dated file is the archive, /data/quality is the live
+# view. Kept ignored so a manual run does not re-add a second "current" report.
+reports/data_quality.json
+reports/P1_data_quality.md
+
+# Daily artifacts of the same kind as reports/close|noon|review: written every
+# session, useful on disk, not a source file. `verify_report.py` reads them from
+# there; git tracking would add one file per trading day forever.
+reports/facts/
+
+# The sample book is a second paper ledger: same rules as paper.sqlite — it is
+# state produced by running the thing, not something to check in. The task
+# backup is machine-local too (it names absolute paths on one host).
+data/samples.sqlite*
+data/task-backup-*.xml
+
+# M0 scratch: the pre-session working tree as a patch. Once the tree is committed
+# this is the same content as HEAD, so tracking it would only double the bytes.
+reports/review/baseline/
+
+# 运行时产物：就绪告警由 daily_job 每次覆写，pkl 是取数时的一次性缓存
+data/READINESS_ALERT.txt
+data/_*.pkl
+
+# 审计的历史快照：用来比"上一轮是不是变坏了"。基线是本机状态，和 paper.sqlite 同类——
+# 新克隆第一次跑会说"第一次记录"，那是对的。
+reports/audits/
+
+# baostock 的当日请求预算与运行锁：本机状态，和 paper.sqlite 同类。
+data/baostock_budget.json
+data/baostock.lock
+# 每次 sweep 的清单（覆盖多少只、几百次请求用在哪），同 reports/audits/
+reports/intraday_sweep/
+plugin/probe_all.json
+
+# 日更写出的告警文件：内容是当天窗口的判定，不是配置
+data/ALERT.txt
+# 日更的完成标记与单写者锁：每次运行都变，是运行期状态。和 ALERT.txt 同类，
+# 但这两个**必须存在**——没有标记就说不清"跑完了"还是"根本没跑"。
+data/daily_done/
+data/daily_job.lock
+
+# 覆盖率数据：跑 coverage_gate.py 时生成，是运行期产物
+.coverage
+.coverage.*
+htmlcov/
+
+# 临时数据集仓库（schema_meta / dataset_manifest，44K 的空壳）：和 registry.sqlite
+# 同类，是本机跑出来的状态，不是源码。留着会让 /health 的 dirty 永远是 true——
+# 一个永远亮的灯，等于没有灯。
+data/market.sqlite*
+data/quant.sqlite*
+# 路由/模块映射图：一次性的调查产物，不是构建输入
+data/_route_map.json
+data/_map.mjs
+
+# 运行产物：每天都会变，入库只会让 git status 永远脏
+data/archive/
+data/panel_window.json
+data/service.out
+reports/paper/
+reports/shadow/

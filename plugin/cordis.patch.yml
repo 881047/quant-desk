@@ -1,0 +1,18 @@
+# quant-desk bundle patch
+#
+# Mounts the paper trading desk into every agent. The service must be running on
+# 127.0.0.1:8811 (`uvicorn service.api.app:app`). No UI, no client bundle.
+
+- insert:
+    - id: quant-desk
+      name: 'quant-desk'
+      inject: [systemPrompt, tools]
+      config:
+        baseUrl: http://127.0.0.1:8811
+        # Empty -> read QUANT_TOKEN from the environment, then fall back to the
+        # local development token. Never put a production secret in this file.
+        token: ''
+        timeoutMs: 20000
+        maxResponseBytes: 1048576
+        # Non-loopback URLs require an explicit true; redirects are always blocked.
+        allowRemote: false

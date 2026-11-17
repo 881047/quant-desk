@@ -1,0 +1,36 @@
+# 交易成本。它是账户属性，不是代码属性——换券商只改这一处。
+#
+# 这份文件由 service/settings.py 读取，键名空间是 costs.*，所以这里写
+# commission_rate，代码里读 costs.commission_rate。
+#
+# 此前这 8 个值有三份副本：本文件、trading/impact.py 的模块常量、
+# kernel/execution.BarExecutionModel 的 dataclass 默认值。后两份生效，本文件
+# 是文档。现在只有这一份生效；改滑点不必再改两个 py 文件。
+
+# 佣金：万 2.5，最低 5 元。两融账户通常更高，改成自己券商的数。
+commission_rate: 0.00025
+min_commission: 5.00
+
+# 卖出印花税 0.05%（2023-08-28 起减半）。
+stamp_duty_sell: 0.0005
+
+# 过户费：沪深两市均按成交金额 0.001% 双向收取。
+transfer_fee: 0.00001
+
+# 滑点假设。这是"以为自己能成交在某个价"与"实际成交"之间的差，
+# 不是手续费；回测里它比佣金更能决定策略死活。
+#
+# 按品种分三档，不是两档。曾经是 `is_etf` 的二选一，结果是转债拿到 ETF 的
+# 5bps（生产里 CB 的 is_etf 是 False，实际拿到的是个股档）——同一只债在
+# 研究层和生产层按不同滑点估值，而两边都不会报错。
+slippage:
+  stock_bps: 10
+  etf_bps: 5
+  # 转债 tick 0.001 元、盘口薄、10 张起，按个股档估会低估冲击。
+  cb_bps: 20
+
+# 在涨停价买入的额外惩罚：排队排不上、成交即被套，都要在成本里体现。
+limit_up_penalty_bps: 20
+
+# 单笔委托不超过当日成交额的比例。超过这个量，回测里的"成交"就不成立了。
+volume_cap_ratio: 0.10

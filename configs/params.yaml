@@ -1,0 +1,402 @@
+# 所有"会有人想改的数"都在这里。
+#
+# 规则：
+#   1. 代码里不写值。service/settings.py 只声明类型、范围和用途，值只看本文件。
+#   2. 缺键即启动失败。没有"读不到就用代码里的默认值"这一步——那种兜底会让
+#      一份打错的配置安静地退化成去年的参数，而账户还在按它下单。
+#   3. 本文件出现的每个键都必须在 settings.SPECS 里声明过，多一个键也会报错。
+#      这条是为了接住拼写错误：`max_core_single` 写成 `max_core_singel`，
+#      静默生效的是旧值，而你以为改了。
+#   4. 本机临时覆盖写 configs/local.yaml（不入库），或设环境变量
+#      QUANT__RISK__MAX_POSITIONS=1（shell 退出即失效，适合临时压仓）。
+#
+# 单位：比率一律写小数（5% 写 0.05），金额单位一律人民币元，
+#       bps 写数值（万 2.5 = 2.5）。
+#
+# 与 kernel/units.py 的分工：1 手 100 股、一年 252 个交易日这类"改了就是错"
+# 的事实不在本文件，在 units.py。
+
+# ── 账户与风控 ──────────────────────────────────────────────────────────────
+# 这里是原先 configs/risk.yaml 的内容。那份文件从来没有被任何代码读过：
+# 真正生效的是 guard.RiskLimits 和 kernel.risk.RiskConfig 的 dataclass 默认值，
+# 两者各写一遍，agent 编辑 yaml 得到零效果。现在只有这一份。
+execution:
+  # 限价缓冲：next_open 的票要能跟上开盘跳空，盘中单只给一点余量。
+  # 这三个数以前有三份副本（decisions / oms / kernel.risk），改一处不动另两处。
+  next_open_buffer: 0.02
+  intraday_buffer: 0.005
+  # 最小经济票面：往返固定成本（最低佣金为主）超过这个 bps 就拦单。
+  # 0 = 只报告不拦（先跑一周看分布，再决定阈值）。
+  min_ticket_bps: 0
+
+risk:
+  initial_cash: 5000
+  max_positions: 3
+  max_core_weight: 0.70
+  max_aggressive_weight: 0.60
+  min_cash_weight: 0.20
+  max_core_single: 0.30
+  max_core_etf_single: 0.40
+  max_aggressive_single: 0.50
+  # 必须大于 max_core_single，否则单票上限永远先被行业检查挡住（settings 会校验）
+  max_industry: 0.35
+  max_trade_risk: 0.04
+  max_gap_loss: 0.05
+  # 市价买入按开盘价冻结现金，成交价可能更高。2% 覆盖 10% 板上的正常滑点，
+  # 又不会把现金锁得买不了下一手。曾经在 oms 与 risk 里各写死一次。
+  market_buy_buffer: 0.02
+  max_adv_ratio: 0.01
+  max_actions_per_day: 4
+  # 三个负值：越负越深。settings 会校验 reduce_only <= no_new、stop <= half。
+  daily_loss_no_new: -0.06
+  daily_loss_reduce_only: -0.10
+  drawdown_half: -0.08
+  drawdown_stop: -0.12
+  max_consecutive_losses: 3
+
+# ── 选股域 ──────────────────────────────────────────────────────────────────
+# 这里是原先 configs/universe.yaml 的内容，同样从未被读过。
+screen:
+  # 45 = 5000 元账户 × 0.9 权重 ÷ 100 股，即"一手买得起"的上限。
+  # 账户规模变了应该重算，而不是照抄这个数。
+  max_price: 45.0
+  min_adv_cny: 50000000
+  min_list_days: 60
+  exclude_st: true
+  exclude_boards: [".BJ", "688", "689"]
+  max_candidates: 8
+  momentum_days: 20
+  # 排序键的权重：rank_key = w × 动量分位 + (1-w) × 流动性分位。
+  # 它决定"哪 N 只进候选"，不回答"哪只更值得买"——所以叫 rank_key 不叫 score，
+  # 响应里也把两个分位分开给，读者可以按任一维度重排。
+  # 放在这里是为了能看见、能改、能审计；写死在 screen.py 里的加权分是
+  # 一份没有出处的意见。
+  rank_weight_momentum: 0.65
+  max_abs_pct: 9.5
+  # 必须与当前活袖的单票上限一致（AGGRESSIVE → risk.max_aggressive_single=0.5）。
+  # 2026-11-16 校准：原 0.30 是 CORE 退役前的口径，把可买股价压到 5000×0.3÷100=15 元，
+  # 使 15–25 元区间连续三个交易日进不了候选池。改成 0.50 对应 25 元上限。
+  # 换人格导致活袖上限变化时，这里要跟着改——它不会自己同步。
+  affordable_weight: 0.50
+  panel_days: 75
+  browse_limit: 200
+
+# ── 核心盘 ──────────────────────────────────────────────────────────────────
+# configs/core.json 决定"买哪些标的"，这里决定"怎么配比"。这些曾经是
+# CoreConfig 里的字面量，改一次要动代码、还要重跑 P0 的结论表。
+# 佣金与每手股数不在这里：它们分别是 costs.* 和 units.SHARES_PER_LOT。
+core:
+  vol_window: 20
+  vol_target: 0.12
+  max_weight: 0.35
+  ma_window: 200
+  min_trade_cny: 200.0
+
+# ── 情绪与周期 ──────────────────────────────────────────────────────────────
+sentiment:
+  # 两个口径各自一套阈值，不合并：同一天两个池子的炸板率差 4.84pp，
+  # 用一个 45% 去判会把同一条 tape 判成"分歧"或"主升"两种状态。
+  break_rate_gate: 0.38
+  break_rate_gate_vendor: 0.35
+  break_rate_divergence: 0.475
+  break_rate_divergence_vendor: 0.45
+  # 判「主升」要同时满足：最高连板 ≥ tone_max_boards 且涨停家数 ≥ tone_min_limit_up
+  tone_max_boards: 4
+  tone_min_limit_up: 40
+tape:
+  promotion_spread_warn: 0.02
+  count_gap_warn: 0.05
+
+# ── 池子快照 ────────────────────────────────────────────────────────────────
+pools:
+  # 强制刷新是唯一会"读接口顺带写数据"的路径：一次全市场 5,500 只。失败后要
+  # 隔一会儿再试——上游挂着时立刻重试只是再等一遍超时。而"上次失败"与"别人
+  # 刚抓过"必须分开报，否则调用方会把旧池子当成刚更新的。
+  refresh_min_gap: 120.0
+
+# ── 大盘状态 ────────────────────────────────────────────────────────────────
+regime:
+  trend_ma: 200
+  vol_window: 20
+  breadth_window: 20
+  # 波动率的一年分位：高于 stress 算紧张，低于 calm 算平静
+  vol_stress: 0.75
+  vol_calm: 0.40
+
+# ── 盯盘与预警 ──────────────────────────────────────────────────────────────
+monitor:
+  # 正数写幅度：-5% 硬止损写 0.05。文案里的"-5%"由这个数算出来，
+  # 不再各写一遍（此前 alert 文案写死 -5%，代码改了就变成假话）。
+  hard_stop_pct: 0.05
+  auction_line_pct: 0.02
+  near_stop_pct: 0.015
+tripwire:
+  stop_proximity: 0.02
+  position_move: 0.05
+  pending_distance: 0.01
+autostop:
+  # 破线之后由抓取循环代下卖单。止损价是模型建仓时自己写的数，这条只是兑现
+  # 它；关掉就退回"只记不卖"，等模型下一次醒来处理（最坏 4 小时）。
+  enabled: true
+  # 破线要持续这么久才算成立。停损价常压在整数关口上，抖一帧不是破线——
+  # 按秒不按帧：30 秒档 4 帧、3 分钟档不到 1 帧，按帧算同一个数会有两个意思。
+  confirm_seconds: 120
+trigger:
+  # 意图层拆成两级，刻意不让「能写买卖点」自动等于「能下单」：
+  #   observe=true  → 模型可把条件写进票，盯盘循环逐帧求值、写 reports/shadow
+  #                   轨迹、过期落 expired_untriggered；**永不出钱**。
+  #                   decisions.approve 对 armed 票有独立守卫，即使有人手动
+  #                   二次 approve 也只返回 armed，不会落到 execute_ticket。
+  #   enabled=true  → 命中条件的 armed 票才会被 watch._run_intents 调 approve
+  #                   兑现出钱。这是唯一的资金动作。
+  # 与 autostop.enabled 分开：那个管止损代下单，这个管入场意图。
+  # 两者都缺省关（项目约定：资金路径由人激活）。缺键即启动失败。
+  # 2026-11-09 核对：早期注释里「启用前先做完三件事」其实早已完成——
+  #   * 只读观察链：service/trading/intent.py `run` 只写 reports/shadow 轨迹，
+  #     不调 approve、不产生订单、scope 与 paper 物理隔离；
+  #   * 过期与复核：valid_until 落 expired_untriggered、on_expiry=mark_only，
+  #     approve(armed) 复核条件/有效期，watch 双 flag 兜底；
+  #   * 工具描述已含 contingency 用法；tests/trading/test_intent_*.py 共 37 项。
+  # 2026-11-09 23:05 激活 observe：宿主已重连、服务端代码 ffb6a15 已重启。
+  # 现在模型可以写条件入场点，票冻结成 armed、逐帧求值写 reports/shadow；
+  # enabled 仍为 false，二次 approve 与 watch 兑现都被守卫挡住，永不出钱。
+  # 资金开关 enabled 保持「缺省关、由人激活」的项目约定不变；缺键即启动失败。
+  observe: true
+  enabled: false
+
+# ── 资金开关的晋级门禁（2026-11-10 预注册） ────────────────────────────────
+# 这些数值在看到任何结果之前写死：门槛若在结果出来后再定，就成了给冲动
+# 配一个数字。scripts/promotion_gate.py 只读检查，postclose_check.py 每天监督：
+#   enabled=false 且门禁 blocked → 合规（info）
+#   enabled=true  且门禁 blocked → 违反降级规则（warn），应当关回
+# 门禁本身不改开关、不发信号，只回答「现在够不够格」。
+# min_decisions 刻意不在这里重复：唯一真相源是 arena.min_decisions_for_an_interval。
+promotion:
+  min_memo_n: 20
+  min_bss: 0.0
+  min_accepted_hypotheses: 1
+  atr_multiple: 2.5
+  benchmark_symbol: 002185.SZ
+
+# ── 冲击成本与成交 ──────────────────────────────────────────────────────────
+impact:
+  c_small_cap: 0.4
+  max_schedule_days: 250
+  max_participation: 0.30
+
+# ── 就绪度与数据质量 ────────────────────────────────────────────────────────
+readiness:
+  min_coverage: 0.90
+  close_time: "15:00"
+quality:
+  quarantine_ratio: 0.02
+  factor_identity_tolerance: 0.01
+  reconcile_budget_seconds: 300
+
+# ── 日更状态 ────────────────────────────────────────────────────────────────
+# daily_due 必须和 scripts/install_daily_task.ps1 里的 close 任务时刻一致：
+# 它只用来回答"到点了却没有完成标记"，不参与调度。
+# stale_after_minutes 是调度器的 ExecutionTimeLimit 上限（6 小时）——超过它的锁
+# 不是一次运行，是崩溃留下的文件。
+pipeline:
+  daily_due: "17:30"
+  stale_after_minutes: 360
+
+# ── 行情缓存与熔断 ──────────────────────────────────────────────────────────
+realtime:
+  default_ttl: 3.0
+  # 状态判定窗口（秒）：报价在此之内仍可用来判「止损是否跌破 / 算不出→unknown」。
+  # 与 live_fill.max_quote_age(90s) 是**有意分层**，不是漏改：成交是不可逆的资金
+  # 动作，门槛收得更紧；状态判定判错还有 unknown fail-closed 兜底，故放宽到 120s。
+  # 第三个阈值 frame.FRAME_STALE_AFTER = 本值 × 3 (360s) 是抓取帧批次节奏，
+  # 衡量的不是单只报价的价钱。90 / 120 / 360 语义不同，不可合并为一个键；
+  # 统一口径见 service/trading/realtime.py 的 quote_freshness()。
+  stale_after: 120.0
+  batch: 50
+  timeout: 8.0
+  breaker_threshold: 3
+  breaker_cooldown: 300.0
+api:
+  breaker_window: 60.0
+  breaker_limit: 30
+  # 91 条路由各占两个 key（匹配 + 未匹配的 ! 孪生），约 182；512 给拼写错误
+  # 和历史留 2.8 倍余量，同时给"有人乱编路径"设一个硬上界。
+  breaker_max_keys: 512
+  sample_target: 20
+
+# ── 数据源 ──────────────────────────────────────────────────────────────────
+# 超时与分页。这些不影响判断，但影响"数据到没到"；而数据没到会被下游当成零，
+# 所以限流时要能只改这一处，而不是去三个 adapter 里找默认值。
+source:
+  tencent:
+    timeout: 8.0
+    retries: 2
+    chunk: 60
+    max_seconds: 30.0
+  eastmoney:
+    timeout: 8.0
+    retries: 3
+    # 两次调用之间的最小间隔：约 3 次/秒，再快东财会直接掐连接。
+    min_interval: 0.3
+    max_seconds: 30.0
+  cninfo:
+    timeout: 25.0
+    retries: 3
+    # 这是公共服务不是数据源，慢一点换稳定。
+    min_interval: 0.25
+    max_seconds: 30.0
+    max_pdf_bytes: 67108864
+  ths:
+    timeout: 15.0
+    page_size: 200
+    max_pool_pages: 60
+    # 这个接口对 size>20 直接返回 code=1003，不是截断，所以上限就是 20。
+    auction_page: 20
+
+# ── 存储与缓存 ──────────────────────────────────────────────────────────────
+storage:
+  validated_cache_limit: 4096
+  lock_wait_seconds: 600
+cache:
+  analog_keep: 4
+  pool_limit: 4
+  # 行情事实（帧缓存 / 清单重读 / ST 标记）的新鲜窗口。这三处曾各写一个 60.0，
+  # 其中一处还带注释"与另一处一致"——注释不是约束，改一个就会静默分叉。
+  market_seconds: 60.0
+  system_ttl: 60.0
+  system_limit: 8
+
+# ── 输出预算 ────────────────────────────────────────────────────────────────
+# 16KB 是宿主接收的上限，4KB 是 context_pack 自留的预算（留出工具调用的余量）。
+context:
+  max_bytes: 4096
+persona:
+  max_switches_per_day: 2
+  min_reason_chars: 20
+  min_invalidation_chars: 5
+  edge_bps_bound: 500.0
+playbook:
+  max_chars: 20000
+  min_chars: 50
+timeline:
+  max_read_limit: 20000
+
+# ── 相似日检索 ──────────────────────────────────────────────────────────────
+analog:
+  top_n: 1200
+  min_amount: 20000000
+  min_history: 60
+  max_abs_ret: 0.5
+  bootstrap_draws: 400
+  # 同一天必须给出同一个答案：种子固定，不随进程变化。
+  seed: 20260101
+  max_sessions: 3000
+  # 长度必须等于特征数（analog.FEATURES），改了特征就同时改这里并 index_version +1
+  weights: [1.0, 0.8, 1.0, 0.8, 0.7, 0.5, 0.6, 0.6]
+  # 前瞻收益的持有期。改这个会让历史统计与"5 日胜率"这类文案的口径一起变，
+  # 所以它也必须只有一个来源。
+  # 2026-11-12：补 2 / 4 日，使 1–5 日连续可读。每个 h 的前向收益独立计算，
+  # 所以既有 1/3/5/10 的数值口径不变，只是同一张表里多两列；10 日保留作
+  # 衰减参照，purge 距离 max(HORIZONS)+1 也仍是 11。FEATURES 与 weights 未动，
+  # index_version +1 只用于让按版本缓存的 npz 自动重建。
+  horizons: [1, 2, 3, 4, 5, 10]
+  index_version: 4
+
+# ── 账目核对 ────────────────────────────────────────────────────────────────
+# 相对容差 + 绝对下限：500 元账户上 2% 是 10 元，比一次佣金还小，
+# 会让每笔都对不上；反过来只看绝对额，大账户上一万元也被放过。
+account_check:
+  tolerance_pct: 0.02
+  min_abs: 30.0
+  drift_floor: 50.0
+manual:
+  tolerance_pct: 0.02
+  min_abs: 30.0
+
+# ── 税 ──────────────────────────────────────────────────────────────────────
+# 债券利息按次代扣个人所得税。现金分红**不**在这里：它在卖出时按持有期
+# 补扣，所以 corp_action 记的是税前全额，两者不是同一种时点。
+tax:
+  cb_coupon_withholding: 0.20
+
+# ── 其他交易约束 ────────────────────────────────────────────────────────────
+guard:
+  cb_last_buy_sessions: 10
+handoff:
+  stale_lock_seconds: 900
+live_fill:
+  # 成交门槛（秒）：报价比这更旧就不得用于盘中成交（STALE_QUOTE，不可逆资金动作）。
+  # 90 ≠ realtime.stale_after(120)：后者只判状态、判错有 unknown 兜底；
+  # frame.FRAME_STALE_AFTER(360) 是帧节奏。三层不可合并，见 realtime.quote_freshness()。
+  max_quote_age: 90.0
+ths_account:
+  identity_tolerance: 0.01
+
+# ── 研究域 ──────────────────────────────────────────────────────────────────
+research:
+  # 样本账本（data/samples.sqlite）的独立规模。主账户 `risk.initial_cash` 是
+  # 5,000，这本账只有 2,000：一个持仓、满仓、每天一买一卖，目标是凑够 20 笔
+  # 平仓记录，不是收益率。放在这里之前它是 import 时读死的 2,000。
+  samples_cash: 2000
+  # desk/v2：100 → 200。公开标准里 100 笔以下的 Sharpe 区间宽到几乎全是噪声；
+  # 在案 7 条假设最少 300 笔，收紧不改变任何一条判决（见单调性验证）。
+  min_trades: 200
+  account_max_positions: 3
+  min_account_trades: 30
+  max_hold: 60
+  forward_bars: 1
+  scan_threshold: 0.05
+  scan_min_amount: 50000000
+  pct_window: 252
+  pct_min: 120
+  min_bucket_n: 30
+  state_min_episodes: 10
+  tape_min_episodes: 30
+  recent_sessions: 756
+  cancel_ratio: 0.10
+  band_tol: 0.012
+  max_days: 260
+  lookback: 250
+  master_grace: 3
+  quote_stale_seconds: 300.0
+  # 信息面自评里「列出哪些弱维度」的阅读提示线。它只决定 weak_dimensions
+  # 列几行，不改任何分数、权重、缓存键，也不是允许/禁止交易的开关。
+  # 放在配置里是因为「多低算需要点名」是会有人想调的口径，不该写死在代码。
+  weak_dimension_ceiling: 0.5
+  # 财报「已披露未入库」的语义 SLA。覆盖度 = 已入库最新报告期的股票数 / 在市股票数，
+  # 量的是同步有没有追平，不是距今天数（季度数据天然间隔约 90 天，max_lag=250
+  # 的交易日口径会把 79 天的滞后判成正常）。低于阈值就显式报 sla_breached，
+  # 不改总分、不挡任何判断。
+  fundamental_min_coverage: 0.5
+  fundamental_max_stale_days: 120
+  min_neighbours: 5
+  default_k: 20
+  # 影子晋级的两个闸门，与 referee.* 回答不同的问题：referee 判"是不是噪声"，
+  # 影子判"值不值得花资源跟"。p 值因此更严（0.025 < p_max 0.05）；
+  # PBO 不严于资本晋级（>= pbo_promote 0.10），settings 会校验这条不变式。
+  shadow_gate: 0.30
+  shadow_p_max: 0.025
+  default_horizon: 20
+
+  # 预注册判决规则：事先定好、不逐条协商。改阈值可以，但要一次改完并重跑
+  # 全部在案策略——否则每拒绝一个策略就换一次门槛，回测就成了叙述。
+  #
+  # 2026-11-12 desk/v2 收紧（一次性改齐，未放宽任何一条）：
+  #   旧 p_max 0.10 / pbo_max 0.50 / dsr_min 0.90 / min_trades 100 均低于公开
+  #   常用标准（p<0.05、PBO<0.1~0.3、DSR>0.95、200+ 笔）。四项同时收紧，
+  #   并把 pbo_promote / dsr_promote 一并下移以保持"主判 < 晋级"的层级。
+  #   未重跑在案策略：7 条全部 rejected，收紧只会让拒绝更硬，不可能翻成
+  #   accepted/promoted（单调性由 tests/research/test_policy_tightening.py 验证）；
+  #   每条历史判决自带 policy 快照，口径自洽。重跑反而会向 research.sqlite
+  #   追加 trials、改变 174 次试验的 DSR 分母，破坏历史可比性。
+  referee:
+    p_max: 0.05
+    pbo_max: 0.35
+    pbo_promote: 0.20
+    dsr_min: 0.95
+    dsr_promote: 0.98
+    # 第一个是主判决引用的倍数（判决文案里的 "2x"）；后面几个只进入明细表。
+    stress_multipliers: [2.0, 3.0]
+    cpcv_p05_min: 0.0
+    cpcv_positive_min: 0.80
+    account_total_min: 0.0

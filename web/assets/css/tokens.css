@@ -1,0 +1,254 @@
+/* 设计令牌 —— 全部颜色、字号、间距、形状尺寸、布局几何的唯一来源。
+   改主题只改这一个文件；Canvas 图表也从 getComputedStyle 读一次再缓存（chart.js::readTheme）。
+
+   三条正交通道，不许串台：
+     价格方向 = 只用色相（红/绿/平灰）
+     数据可信度 = 色相 + 形状（虚框=空 / 琥珀斜纹+三角=旧 / 紫=坏，三级 wash→条→反白）
+     判定 = 填充量 + 字重，零色相（空心方=过 / 实心方=不过 / 空位=无结论）
+
+   形状占用表（形状按"问题类型"分工，加新标记先在这里认领一行）：
+     方 8×8   二值判定，只在 guard/闸门判定位
+     圆 6px   离散状态点（状态机 / 源健康 / live）
+     条 2×12  累积级别（L1 紫条×1、L2 紫条×2）/ 列表当前项（白条）
+     反白块   最高级故障 L3，不可点
+     三角 3px 时间陈旧，贴读数右下角
+     斜纹 45° 琥珀=部分降级（只在容器底）/ 红=炸板（只在图表元素）
+     虚框     缺失（— / 整格 / 面板）
+   红绿只准出现在价格、涨跌幅、盈亏上。 */
+
+:root {
+  color-scheme: dark;
+
+  /* ---------------------------------------------------------- 背景与描边 */
+  --bg-page: #0B0D10;
+  /* 卡片比页面亮一档、描边比卡片暗一档：面差负责分块，描边只负责收边。
+     原来描边（#21262E）比卡片底色更亮，屏幕上一眼看过去是"线框格"而不是"面板"。 */
+  --bg-panel: #141821;
+  --bg-raised: #1B2029;
+  --bg-input: #0E1116;
+  --line: #21262E;
+  --line-card: #1A1F27;   /* 卡片收边，比 --line 暗 */
+  --line-strong: #37414F;
+  --line-soft: #1A1F27;
+
+  /* ---------------------------------------------------------------- 文本 */
+  --ink: #E6E9EE;
+  --ink-2: #AEB7C4;
+  --ink-mid: #AEB7C4;
+  --ink-dim: #7C8899;
+  /* 已删除：暗底上任何文字用它都过不了 4.5。
+     次级层级用字号与字距表达，不用墨色。 */
+
+  /* --------------------------- A 股涨跌：全站唯一一对红绿（信息，非装饰） */
+  --px-up: #FF5A63;
+  --px-down: #21C97C;
+  --px-flat: #8A93A3;
+  --glow-limit: 0 0 6px rgba(255, 90, 99, .35);
+  --glow-limit-down: 0 0 6px rgba(33, 201, 124, .35);
+
+  /* ------------------------------------------------------ 强调 / 语义色 */
+  --accent: #58A6FF;
+  --accent-soft: rgba(88, 166, 255, .12);
+  /* 青被收窄成"时间新鲜度"专用：live 点、新鲜度尺 T0、pipe done、profile 实时 */
+  --signal-live: #3ED3B8;
+  --warning: #F5A524;
+
+  /* ----------------------------------------- 缺数（空）：灰虚框 + 高对比墨 */
+  --al-missing-fill: rgba(255, 255, 255, .035);
+  --al-missing-line: #3A4452;
+  --al-missing-ink: #AEB7C4;   /* 9.03:1 —— 缺数的墨色只用这一档，不要拿更暗的墨色凑 */
+
+  /* ------------------------------------------- 旧：琥珀 + 斜纹 + 三角 */
+  --al-stale: #F5A524;
+  --al-stale-wash: rgba(245, 165, 36, .10);
+
+  /* ------------------------------------------- 坏：紫，仅系统层，三级梯 */
+  --al-fault: #B98CFF;                        /* L1/L2 紫字 / 紫条 */
+  --al-fault-wash: rgba(185, 140, 255, .14);  /* L1/L2 底色 */
+  /* L3 反白块。只准用在**叶子组件**上：单行文字 / 单个 chip / 单条 toast。
+     禁止用在**容器组件**上 —— 容器里的子元素全按暗底设计（文字阶、发丝线、
+     表头底色、判定灰），换底后无一例外全部失效。.toast.bad 是它唯一诚实的用户；
+     .err 曾经用它，结果整块里 6 处子元素同时失去对比度，已退回暗底。 */
+  --al-fault-bubble: #E6E9EE;                 /* L3 反白块底（仅叶子） */
+  --al-fault-ink: #0B0D10;                    /* L3 反白块字 */
+  --danger: var(--al-fault);                  /* 别名，不要再单独调色 */
+
+  /* ------------------------------------------- 判定：填充量 + 字重，零色相 */
+  --judge-yes: #7C8899;
+  --judge-no: #E6E9EE;
+  /* 虚线态已删除（8px 上虚线与空位不可分），这个色只做"终态"描边，永不做文字色 */
+  --mark-muted: #5E6B80;
+
+  /* -------------------------------------------- 内滚表格（.fit）与行高 */
+  /* 实际行高：td 5+5 + 行内容 ≈ 28.4px（5+5 padding + 12px 字号 × 1.45 行高）。
+     写 22px 会让「还有 N 行」多数 29%，scroll-margin-top 也盖不住 sticky 表头。 */
+  --row-h: 28px;
+  --fit-max-h: calc(var(--main-h) - 120px);
+  --fit-min-h: 220px;
+  --fade-h: 12px;
+  --fade-bg: var(--bg-panel);   /* 渐隐取所在容器实际底色，raised 面板覆盖它 */
+
+  /* ---------------------------------------------------- 形状尺寸（冻结） */
+  --mark-judge: 8px;
+  --mark-judge-stroke: 1px;
+  --mark-gap: 6px;
+  --mark-stale: 3px;
+  --mark-dot: 6px;      /* 离散状态点直径（形状表：圆 6px），.dot 的唯一尺寸来源 */
+  --mark-bar-w: 2px;
+  --mark-bar-h: 12px;
+
+  /* ---------------------------------------------- 并置块 / 状态机连线 */
+  --note-rule: #37414F;
+  --st-branch: #7C8899;
+  --st-link: #37414F;
+
+  /* 斜纹只给"部分降级"用，不要拿去做别的事 */
+  --cell-hatch: repeating-linear-gradient(
+    45deg, rgba(245, 165, 36, .16) 0 1px, transparent 1px 4px
+  );
+
+  /* ---------------------------------------------------------------- 图表 */
+  --ma-5: #E8EDF5;
+  --ma-10: #FFC24B;
+  --ma-20: #58A6FF;
+  --ma-60: #9AA7B8;
+  --chart-grid: #171C23;       /* 主图 4 条横网格 */
+  /* 主图/量/副图之间的 1px 分区线（1.61:1，看得见但不抢）。原来声明了两遍，值相同。 */
+  --chart-divider: #2E3742;
+  --chart-axis: #171C23;       /* 保留：网格同级的淡线 */
+  --chart-label: #74808F;      /* 4.55:1 —— 坐标轴允许的最低档，比正文弱化再退一档 */
+  --chart-cross: #6E7A8C;
+  --chart-cross-bg: #0B0D10;   /* 十字读数标签底 */
+  --on-solid: #0B0D10;         /* 压在实底上的字（价格标签 / 反白块） */
+  /* 量柱：高度是主编码，颜色只做冗余，所以半透明实心（不空心） */
+  --vol-up: rgba(255, 90, 99, .42);
+  --vol-down: rgba(33, 201, 124, .42);
+  /* MACD 柱：比蜡烛低一档 alpha，副图不该比主图重 */
+  --macd-up: rgba(255, 90, 99, .55);
+  --macd-down: rgba(33, 201, 124, .55);
+  /* 布林：中性蓝灰，dotted 与 MA60 的 dashed 区分；紫永远不碰价格包络 */
+  --boll-line: #5C6B80;
+  --boll-fill: rgba(92, 107, 128, .10);
+
+  /* ---------------------------------------------------------------- 字体 */
+  --font-ui: "Inter", "SF Pro Text", -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-num: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Mono", "Microsoft YaHei", monospace;
+
+  /* -------------------------------------------------------------- 字号 */
+  --fs-micro: 10px;
+  --fs-label: 11px;
+  --fs-body: 12px;
+  --fs-strong: 13px;
+  --fs-lg: 14px;
+  --fs-xl: 22px;
+  --fs-xl2: 34px;
+  --fs-num: 16px;   /* KPI 主数字：等宽字比 UI 字重一档，17px 会压过标题 */
+
+  /* -------------------------------------------------------------- 间距 */
+  --sp-1: 2px; --sp-2: 4px; --sp-3: 6px; --sp-4: 8px;
+  --sp-5: 12px; --sp-6: 16px; --sp-7: 24px;
+
+  /* -------------------------------------------------------------- 圆角 */
+  /* 圆角只留三档：标记/芯片 2、控件 5、面 7。曾经还有 3px 与 4px，没人说得清区别。 */
+  --r-1: 2px;
+  --r-card: 7px;   /* 只有"面"（面板/卡片/KPI 条）用；标记、芯片、表格仍是锐角 */
+  --r-ctl: 5px;    /* 按钮与输入框 */
+
+  /* -------------------------------------------------------------- 层级 */
+  --z-sticky: 20; --z-overlay: 60; --z-toast: 90;
+
+  /* -------------------------------------------------------------- 布局 */
+  --rail: 196px;
+  --topbar: 44px;
+  --topbar-h: 44px;
+  --tab-h: 32px;
+  --status-h: 28px;          /* 全局状态条（镀铬，不属于任何页签） */
+  --foot-h: 0px;             /* 底栏（revision/fill_mode/耗时）尚未在 DOM 里，先不占高 */
+  --chrome-h: calc(var(--topbar) + var(--tab-h) + var(--status-h));
+  --col-l: 300px;
+  --col-r: 420px;
+  --main-h: calc(100dvh - var(--chrome-h) - var(--foot-h));
+  --hair: 1px solid var(--line);
+
+  /* ------------------------------------------- 个股页两带（只影响个股页） */
+  --head-h: 60px;
+  --chart-w: 1018px;
+  --band-upper: 380px;
+  --band-lower: calc(var(--main-h) - var(--head-h) - var(--band-upper));
+  --rail-top: 44px;
+  --rail-h: 728px;
+  --archive-w: 253px;
+  --archive-span: 514px;
+  /* 图表内部：380 = 232 ｜1｜ 60 ｜1｜ 68 ｜18（含两条 1px 分隔线） */
+  --kline-axis: 58px;
+  --kline-axis-wide: 64px;
+  --chart-main: 232px;
+  --chart-vol: 60px;
+  --chart-vol-solo: 61px;
+  --chart-sub: 68px;
+  --chart-xaxis: 18px;
+  --chart-main-solo: 300px;
+  --plot-min-w: 880px;
+}
+
+* { box-sizing: border-box; scrollbar-gutter: stable; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-page);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body { overflow: hidden; }
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* 数字一律等宽 + tabular，表格里不跳列 */
+.num, .mono { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+/* 0 是干净数字：无框无底。平盘用 --px-flat，与 Canvas 同一个灰 */
+.up { color: var(--px-up); }
+.down { color: var(--px-down); }
+.flat { color: var(--px-flat); }
+
+::selection { background: rgba(88, 166, 255, .28); }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #232A34;
+  border-radius: 5px;
+  border: 2px solid var(--bg-page);
+}
+::-webkit-scrollbar-thumb:hover { background: #303947; }
+
+/* 焦点环统一 2px：1px 在深底上过不了 3:1 的对比要求，也和卡片描边分不开。
+   滚动容器里的元素（.fit / .tbl-wrap）不用 outline —— 会被 overflow 裁掉半边，
+   改用 inset box-shadow，见 app.css 的焦点段。 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 抽屉滑入、toast、pop 全部在减少动效时关掉（不是缩短） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,70 @@
+[project]
+name = "quant-desk"
+version = "0.1.0"
+description = "A-share paper trading kernel with deterministic execution and LLM-native decision layer"
+requires-python = ">=3.12"
+# Upper bounds are deliberate: the two exact pins below exist because their
+# behaviour is part of the accounting, and a major bump of a vendor client
+# (akshare, tushare) has broken column names before. `uv.lock` remains the
+# reproducible record; these ranges only stop a fresh resolve from landing a
+# different major.
+dependencies = [
+  "pandas==2.2.3",
+  "numpy==2.1.3",
+  "pyarrow>=17,<30",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pydantic>=2.9,<3",
+  "python-dotenv>=1.0,<2",
+  # settings.py imports yaml directly. It used to arrive only as a transitive
+  # extra of uvicorn[standard]; a minimal `uvicorn` install would have failed at
+  # import of the whole service, at the first order, with a stack trace about
+  # yaml rather than about configuration.
+  "pyyaml>=6,<7",
+  "httpx>=0.27,<1",
+  "tushare>=1.4,<2",
+  "akshare>=1.14,<2",
+  "baostock>=0.8.9,<1",
+  # Announcement PDFs are the only "原文" this desk can get for free; pypdf is
+  # pure python and reads the text layer without a system dependency.
+  "pypdf>=5,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "hypothesis>=6", "ruff>=0.6", "coverage>=7"]
+research = ["lightgbm>=4.5", "hmmlearn>=0.3"]
+# Reading a window's accessibility tree (scripts/probe_ui.py). Optional on
+# purpose: the ledger must work without it, and the clipboard path needs nothing.
+screen = ["pywinauto>=0.6.9", "pillow>=10", "winsdk>=1.0.0b10"]
+# The desktop panel: a local HTML window, so the table can hold ten numeric
+# columns without looking like 2010. No port is opened and nothing is fetched.
+panel = ["pywebview>=6", "pillow>=10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# D() returns an immutable Decimal, so dataclass defaults are safe here.
+# RUF059: tests intentionally unpack engine/ledger and ignore one side.
+ignore = ["RUF009", "RUF059"]
+
+[tool.coverage.run]
+# The service is the thing that has to be covered; the scripts are thin shells
+# around it and the plugin is JavaScript.
+source = ["service"]
+omit = ["*/__pycache__/*"]
+
+[tool.coverage.report]
+# A line that only runs when an assertion fails is not coverage.
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

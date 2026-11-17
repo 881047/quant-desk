@@ -1,0 +1,41 @@
+{
+  "name": "quant-desk",
+  "version": "0.1.0",
+  "description": "A-share paper trading desk for DeepSeek Harness: context pack, tickets, hard risk guard, journal.",
+  "type": "module",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:mcp": "node --test mcp/test/*.test.mjs",
+    "test:all": "node --test test/*.test.mjs mcp/test/*.test.mjs",
+    "test:coverage": "node coverage_gate.mjs",
+    "audit": "node audit_all.mjs"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dshTarget": "0.2.1-rc.2",
+  "license": "MIT",
+  "private": true
+}

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quant-desk</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo"></span>
+    <span class="name">quant·desk</span>
+    <span class="pill" id="day-pill">—</span>
+  </div>
+  <div class="spacer"></div>
+  <span class="stamp" id="stamp"></span>
+  <button class="btn" id="btn-quick-trade" title="录一笔成交，佣金与印花税自动算">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+    记一笔
+  </button>
+  <button class="btn" id="btn-reload" title="重新读取（Ctrl+R）">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4"/><path d="M13.6 1.9v3.2h-3.2"/></svg>
+  </button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab on" data-tab="live">实盘</button>
+  <button class="tab" data-tab="sync">同步账户</button>
+  <button class="tab" data-tab="acts">今日动作</button>
+  <button class="tab" data-tab="system">系统</button>
+</nav>
+
+<main>
+  <!-- ------------------------------------------------------------ 实盘 -->
+  <section class="pane on" id="pane-live">
+    <div class="kpis">
+      <div class="kpi">
+        <div class="kpi-label">总资产</div>
+        <div class="kpi-value" id="kpi-total">—</div>
+        <div class="kpi-foot" id="kpi-total-foot"></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">可用资金</div>
+        <div class="kpi-value" id="kpi-cash">—</div>
+        <div class="kpi-foot" id="kpi-cash-foot"></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">持仓市值</div>
+        <div class="kpi-value" id="kpi-mv">—</div>
+        <div class="kpi-foot" id="kpi-mv-foot"></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">现金占比</div>
+        <div class="kpi-value" id="kpi-ratio">—</div>
+        <div class="kpi-foot" id="kpi-ratio-foot"></div>
+      </div>
+    </div>
+
+    <div class="verdict" id="verdict">
+      <span class="dot"></span>
+      <div class="verdict-body">
+        <div class="verdict-line" id="verdict-line">正在读取账户…</div>
+        <div class="verdict-sub" id="verdict-sub"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>持仓</h2>
+        <span class="hint" id="position-source"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="grid" id="position-table">
+          <thead>
+            <tr>
+              <th class="l">代码</th><th class="l">名称</th>
+              <th>股数</th><th>成本</th><th>现价</th><th>市值</th>
+              <th>盈亏</th><th>止损</th><th>竞价线</th><th class="l">状态</th>
+            </tr>
+          </thead>
+          <tbody id="position-body"></tbody>
+        </table>
+        <div class="empty" id="position-empty" hidden>
+          空仓。账户里全是现金——这不是错误，但如果今天有过交易，说明快照还没更新。
+        </div>
+      </div>
+    </div>
+
+    <div class="row-2">
+      <div class="card">
+        <div class="card-head"><h2>账本</h2></div>
+        <dl class="kv" id="ledger-kv"></dl>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>需要处理</h2></div>
+        <div id="alerts-box" class="alerts"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>今天在做什么</h2>
+        <span class="hint" id="live-acts-hint"></span>
+        <div class="head-actions">
+          <button class="btn small ghost" id="btn-all-acts">全部记录</button>
+        </div>
+      </div>
+      <ol class="timeline" id="live-acts"></ol>
+      <div class="empty" id="live-acts-empty" hidden>
+        今天还没有记录。空仓是合法决策——但没有记录和没有动作不是一回事。
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ 同步 -->
+  <section class="pane" id="pane-sync">
+    <div class="card intro">
+      <h2>手动同步</h2>
+      <p>持仓以<strong>你录入的为准</strong>，不再读券商窗口。两件事分开：
+        改持仓用下面的表，记成交用「记一笔成交」——后者会自动算佣金与印花税，
+        并把持仓一起更新，不用两处都改。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>1 · 账户数字</h2>
+        <span class="hint">照抄客户端「资金股票」页右上角</span>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>总资产</span>
+          <input id="in-total" autocomplete="off" inputmode="decimal" placeholder="0.00">
+        </label>
+        <label class="field">
+          <span>可用资金</span>
+          <input id="in-cash" autocomplete="off" inputmode="decimal" placeholder="0.00">
+        </label>
+        <label class="field">
+          <span>持仓市值</span>
+          <input id="in-mv" autocomplete="off" inputmode="decimal" placeholder="留空则按现价算">
+        </label>
+        <label class="field">
+          <span>日期</span>
+          <input id="in-day" autocomplete="off" inputmode="numeric" placeholder="20261027">
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>2 · 持仓明细</h2>
+        <div class="head-actions">
+          <button class="btn small" id="btn-add-row">加一行</button>
+          <button class="btn small ghost" id="btn-clear-rows">清空</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="grid edit" id="edit-table">
+          <thead>
+            <tr><th class="l">代码</th><th class="l">名称</th><th>股数</th>
+                <th>成本价</th><th>现价</th><th></th></tr>
+          </thead>
+          <tbody id="edit-body"></tbody>
+        </table>
+      </div>
+      <details class="paste">
+        <summary>从客户端粘贴，自动填表</summary>
+        <textarea id="paste-box" spellcheck="false"
+          placeholder="在同花顺持仓页按 Ctrl+A、Ctrl+C，粘贴到这里（带表头的整块都行）"></textarea>
+        <div class="paste-actions">
+          <button class="btn small" id="btn-parse">解析并填表</button>
+          <button class="btn small primary" id="btn-import" hidden>写入成交</button>
+          <span class="hint" id="parse-hint"></span>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>3 · 校验并保存</h2>
+        <div class="head-actions">
+          <button class="btn" id="btn-preview">校验</button>
+          <button class="btn primary" id="btn-save">保存快照</button>
+        </div>
+      </div>
+      <div id="plan-box" class="plan">
+        <p class="hint">还没有校验。保存前会先对一遍：持仓合计与市值差多少、哪一行读不出来。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>记一笔成交</h2>
+        <span class="hint">补账本用；填写后立即写入成交流水</span>
+      </div>
+      <div class="form-grid tight">
+        <label class="field"><span>日期</span><input id="t-date" autocomplete="off" placeholder="20261027"></label>
+        <label class="field"><span>代码</span><input id="t-symbol" autocomplete="off" placeholder="000590"></label>
+        <label class="field"><span>方向</span>
+          <select id="t-side"><option value="BUY">买入</option><option value="SELL">卖出</option></select>
+        </label>
+        <label class="field"><span>数量</span><input id="t-qty" autocomplete="off" inputmode="numeric" placeholder="200"></label>
+        <label class="field"><span>价格</span><input id="t-price" autocomplete="off" inputmode="decimal" placeholder="9.04"></label>
+        <label class="field"><span>费用</span><input id="t-fee" autocomplete="off" inputmode="decimal" placeholder="留空自动算"></label>
+      </div>
+      <div class="paste-actions">
+        <button class="btn small primary" id="btn-add-trade">写入成交</button>
+        <span class="hint" id="fee-hint"></span>
+      </div>
+      <div class="hint" id="trade-hint"></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ 动作 -->
+  <section class="pane" id="pane-acts">
+    <div class="card">
+      <div class="card-head">
+        <h2>今日动作</h2>
+        <span class="hint" id="acts-hint"></span>
+      </div>
+      <ol class="timeline" id="acts-list"></ol>
+      <div class="empty" id="acts-empty" hidden>
+        今天没有任何记录。空仓是合法决策——但没有记录和没有动作不是一回事。
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ 系统 -->
+  <section class="pane" id="pane-system">
+    <div class="empty" id="system-loading">正在读取系统状态…（首次要读数据集健康度，约 5–8 秒）</div>
+    <div class="row-2">
+      <div class="card">
+        <div class="card-head"><h2>模拟账户</h2><span class="hint">人造账本，与实盘分开</span></div>
+        <dl class="kv" id="paper-kv"></dl>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>谁在决策</h2></div>
+        <div id="persona-box"></div>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="card">
+        <div class="card-head"><h2>待办</h2></div>
+        <ol class="duty" id="duty-list"></ol>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>擂台</h2></div>
+        <div id="arena-box"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>数据是否就绪</h2><span class="hint" id="data-hint"></span></div>
+      <div id="data-box"></div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+<div class="busy" id="busy" hidden><span class="spinner"></span><span id="busy-text">读取中…</span></div>
+
+<script src="app.js"></script>
+</body>
+</html>

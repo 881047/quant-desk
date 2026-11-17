@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>quant-desk · 量化台</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230B0D10'/%3E%3Cpath d='M3 11l3-4 3 2 4-6' stroke='%23FF5A63' stroke-width='1.6' fill='none'/%3E%3C/svg%3E">
+</head>
+<body>
+<div id="root">
+  <div class="gate">
+    <div class="gate-card">
+      <div class="gate-brand"><h1>quant-desk</h1><span>量化台 · 加载中</span></div>
+    </div>
+  </div>
+</div>
+<script>
+// 开发期的错误照面：模块加载失败在控制台里，截图看不见。
+// 只有带 ?debug=1 时才挂，平时是死代码 —— 不需要"上线前记得删"这种约定。
+(function () {
+  if (!/[?&]debug=1/.test(location.search)) return;
+  var box = null;
+  function show(text) {
+    if (!box) {
+      box = document.createElement('pre');
+      box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;'
+        + 'margin:0;padding:10px;background:#1a0d10;color:#ff8a8a;font:11px/1.5 ui-monospace,monospace;'
+        + 'border-top:1px solid #ff5a63;z-index:99999;white-space:pre-wrap';
+      document.body.appendChild(box);
+    }
+    box.textContent += text + '\n';
+  }
+  window.addEventListener('error', function (e) {
+    show('[error] ' + (e.message || '') + (e.filename ? ' @' + e.filename.split('/').pop() + ':' + e.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason || {};
+    show('[reject] ' + (r.code ? r.code + ': ' : '') + (r.message || String(r)) + (r.stack ? '\n' + r.stack.split('\n').slice(0, 3).join('\n') : ''));
+  });
+})();
+</script>
+<script>
+// 桌面窗口没有控制台：未捕获的异常先收进 window.__qdErrors（panel.pyw 的自检探针
+// 读它），再转给 Python 写进 data/panel.log（`[web] ...` 行）。与下面那段
+// ?debug=1 的红条互不影响：红条是给人当场看的，这条是给事后倒查看的。
+(function () {
+  var buf = window.__qdErrors = [];
+  var queue = [];
+  function send(line) {
+    var api = window.pywebview && window.pywebview.api;
+    if (!api || !api.report_error) return false;
+    try { api.report_error(line); return true; } catch (e) { return false; }
+  }
+  function push(line) {
+    buf.push(line);
+    if (buf.length > 20) buf.shift();
+    if (send(line)) return;
+    queue.push(line);          // api 还没注入，等 pywebviewready
+    if (queue.length > 20) queue.shift();
+  }
+  window.addEventListener('error', function (e) {
+    push('[error] ' + (e.message || '')
+      + (e.filename ? ' @' + String(e.filename).split('/').pop() + ':' + (e.lineno || 0) : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason || {};
+    push('[reject] ' + (r.code ? r.code + ': ' : '') + (r.message || String(r)));
+  });
+  window.addEventListener('pywebviewready', function () {
+    var pending = queue.splice(0);
+    for (var i = 0; i < pending.length; i++) send(pending[i]);
+  });
+})();
+</script>
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
